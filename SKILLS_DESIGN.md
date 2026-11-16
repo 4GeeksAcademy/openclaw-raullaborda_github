@@ -1,192 +1,189 @@
 # SKILLS_DESIGN.md — Diseño de skills de Sebastian
 
-**Estado:** diseño previo a la implementación · **Fecha:** 2026-11-16  
-**Objetivo del sistema:** convertir instrucciones enviadas por Telegram (texto o voz) en planes mensuales y semanales, tareas, bloques de agenda y un historial verificable de actividad y decisiones.
+**Estado:** diseño previo a implementación  
+**Fecha:** 2026-11-16  
+**Objetivo:** gestionar por Telegram (texto o voz) la planificación mensual/semanal, las tareas, el calendario, el seguimiento diario, las reuniones y los borradores de correo, dejando un historial consultable de lo realizado y sus motivos.
 
-> Este archivo describe **qué se construirá**, **qué datos necesita cada skill** y **cómo comprobar sus resultados**. No implementa skills, integraciones ni automatizaciones.
-
+Este documento responde, para cada skill, a las **tres preguntas exigidas por 4Geeks**: qué hace, qué input necesita y cómo se verifica un buen output. No implementa ninguna skill ni automatización.
 
 ## Arquitectura compartida
 
-Las nueve skills utilizan los archivos de configuración
-existentes (`AGENTS.md`, `SOUL.md`, `USER.md`, etc.).
-No duplican sus instrucciones ni sus reglas de seguridad.
+Las skills utilizan el contexto existente en `AGENTS.md`, `SOUL.md`, `IDENTITY.md`, `USER.md` y, cuando corresponda, `MEMORY.md`. **No duplican** sus normas generales de seguridad, personalidad, memoria ni autorización.
 
-**Entrada:** Telegram mediante texto o voz transcrita.
+- **Entrada e interacción:** Telegram privado; texto o voz transcrita (transcripción pendiente de comprobar).
+- **Integraciones:** Zapier MCP con Google Docs, Drive, Tasks, Calendar y Gmail. Notion está conectado, pero queda fuera del alcance inicial.
+- **Fuentes de referencia:** **Docs** = objetivos, planes, motivos, actas y diario; **Tasks** = tareas y estados; **Calendar** = fechas y bloques de tiempo; **Drive** = organización y enlaces; **Telegram** = solicitudes, preguntas y confirmaciones.
+- **Consistencia:** reutilizar identificadores/enlaces de objetivos, tareas, documentos y eventos; localizar antes de crear; registrar resultados parciales para poder reintentar sin duplicar.
+- **Seguridad:** todas las skills se someten a `AGENTS.md`, incluidos los límites ante contenido no confiable y los requisitos de aprobación. Una skill no concede permisos nuevos.
 
-**Integraciones:** Zapier MCP con Gmail, Google Docs,
-Google Drive, Google Calendar y Google Tasks.
+## Confirmación obligatoria de resultados por Telegram
 
-**Responsabilidades:**
-- Google Docs: objetivos, planes, decisiones y diario.
-- Google Tasks: tareas y estado de ejecución.
-- Google Calendar: agenda y bloques de trabajo.
-- Google Drive: estructura documental y referencias.
-- Telegram: interacción, preguntas y notificaciones.
+**Criterio transversal de aceptación:** ninguna ejecución se da por terminada sin comprobar sus resultados y emitir, al chat privado autorizado, **un mensaje final breve y verificable**.
 
-**Consistencia:** las skills comparten identificadores
-y enlaces para actualizar registros existentes, evitar
-duplicados y mantener sincronizados los servicios.
+1. **Verificar:** tras cada escritura, comprobar el resultado mediante el recurso recuperado (ID, estado, ubicación y/o lectura posterior, según permita la integración). Un resultado devuelto sin comprobación suficiente se marca *pendiente de verificar*, nunca *completado*.
+2. **Informar:** al finalizar, enviar por Telegram qué se creó, actualizó o descartó, con cifras y **enlaces relevantes** (Doc, tarea, evento o borrador) cuando estén disponibles.
+3. **Distinguir estados:** *Completado y verificado* / *Parcial* / *No completado*. Si algo falla, indicar qué sí se hizo y qué queda pendiente, sin afirmar una sincronización inexistente.
+4. **Evitar ruido:** cuando varias skills colaboren en un mismo flujo, enviar **una única confirmación consolidada** desde el flujo coordinador; las skills auxiliares devuelven resultados estructurados al coordinador, no mensajes independientes. Si se invoca una skill por separado, ella confirma su propio resultado.
+5. **No confundir preguntas con cierres:** el aviso de las 17:30 y la pregunta posterior a una reunión inician un flujo; **no sustituyen** la confirmación de cierre tras procesar la respuesta. Si no hay respuesta, no inventar avances ni enviar un falso mensaje de finalización.
+6. **Telegram no disponible:** registrar que la notificación no se pudo entregar y permitir reintento controlado; no afirmar que el usuario recibió el resultado.
 
-**Seguridad:** todas las skills respetan las políticas
-de privacidad, autorización y protección contra
-prompt injection establecidas en AGENTS.md.
+**Ejemplos de cierre:**
+- «Plan semanal creado y verificado: 6 tareas en Tasks. [Ver plan]. Pendiente: aprobar 3 bloques de calendario».
+- «Revisión registrada: 2 tareas completadas, 1 aplazada y diario actualizado. [Ver diario]».
+- «Resultado parcial: borrador guardado en Gmail, pero no he podido verificar el enlace. No se ha enviado».
 
 ## Skill 01 — `planificacion-periodica`
 
 **1. ¿Qué hace esta skill?**  
-Convierte objetivos y compromisos comunicados por Telegram en un plan mensual o semanal priorizado, con resultados esperados y acciones propuestas.
+Convierte objetivos y compromisos enviados por Telegram en un plan mensual o semanal priorizado con resultados esperados y acciones vinculables.
 
 **2. ¿Qué input necesita el agente?**  
-Texto o voz transcrita con periodo, objetivos, compromisos, fechas límite, restricciones y prioridades (pueden venir incompletos); consulta planes previos y disponibilidad si procede. Ya conoce el perfil y nivel del usuario (`USER.md`), su estilo (`SOUL.md`), el uso de Google y las autorizaciones (`AGENTS.md`), y decisiones anteriores (`MEMORY.md`). Pregunta únicamente por ambigüedades decisivas y distingue aspiraciones de compromisos confirmados.
+Texto o transcripción con periodo, objetivos, prioridades, plazos y restricciones; pueden estar incompletos. Consulta planes existentes, contexto del usuario y, si procede, disponibilidad y tareas. Distingue ideas exploratorias de compromisos; pregunta solo por datos decisivos.
 
 **3. ¿Cómo es un buen output y cómo sabrás que funcionó?**  
-Google Doc `AAAA-MM - Plan mensual` o `AAAA-SNN - Plan semanal`, en `01_Planificación`, con prioridades, objetivos, criterios de éxito, plazos, compromisos, obstáculos y enlaces a tareas; devuelve resumen y enlace por Telegram. **Éxito:** periodo y prioridades fieles al mensaje, documento accesible, sin objetivos inventados ni duplicados, y propuestas de tareas identificadas para la skill 02.
+Google Doc `AAAA-MM - Plan mensual` o `AAAA-SNN - Plan semanal`, en `01_Planificación`, con prioridades, objetivos, criterios de éxito, fechas y enlaces a acciones. **Verificar** que el documento existe, está en la carpeta correcta y refleja fielmente el periodo y los objetivos sin duplicarlos. **Telegram:** confirmar creación/actualización, número de objetivos, enlace y próximos pasos o pendientes.
 
-**Relaciones:** 09 crea/localiza el documento; 02 convierte acciones en tareas; 03 propone bloques; 04 y 06 pueden solicitar revisión del plan.
+**Relaciones:** 09 localiza/crea el Doc; 02 gestiona las acciones; 03 propone bloques; 04 y 06 pueden solicitar revisiones.
 
 ## Skill 02 — `gestion-tareas`
 
 **1. ¿Qué hace esta skill?**  
-Sincroniza las acciones de los planes y revisiones con Google Tasks, manteniendo tareas únicas y estados coherentes.
+Crea y actualiza tareas de Google Tasks a partir de planes, instrucciones y revisiones, manteniendo estados y referencias coherentes.
 
 **2. ¿Qué input necesita el agente?**  
-Acciones del plan o instrucciones explícitas del usuario: descripción, plazo, prioridad, estado y objetivo de origen, cuando existan; IDs de tareas previas para actualizaciones. Obtiene contexto de planes y diario, sin asumir que una tarea está terminada por silencio o mera inferencia.
+Acciones con descripción, objetivo de origen, plazo, prioridad y estado cuando existan; IDs de tareas ya registradas y cambios confirmados por el usuario. Consulta la lista de Tasks acordada y tareas existentes antes de escribir.
 
 **3. ¿Cómo es un buen output y cómo sabrás que funcionó?**  
-Tareas creadas/actualizadas/completadas en la lista de Google Tasks acordada; resumen por Telegram de cambios y dudas, y referencias en el índice documental. **Éxito:** correspondencia con acciones aprobadas, ausencia de duplicados, plazos correctos, estados comprobados y trazabilidad con el objetivo del plan. No borrar tareas importantes sin autorización.
+Tareas creadas, modificadas o completadas en la lista correcta, sin duplicados y con plazos/estados fieles al input. **Verificar** por ID o consulta posterior cada cambio y conservar la referencia al objetivo. **Telegram:** «3 tareas creadas, 2 actualizadas; 1 cambio pendiente», con enlaces si la integración los facilita. No dar por completado lo que el usuario no confirmó.
 
-**Relaciones:** recibe acciones de 01, 04 y 06; proporciona tareas a 03; registra IDs con 09.
+**Relaciones:** recibe 01, 04 y 06; aporta tareas a 03; comparte referencias con 09.
 
 ## Skill 03 — `bloques-de-trabajo`
 
 **1. ¿Qué hace esta skill?**  
-Propone una distribución semanal de tiempo para las tareas prioritarias y crea bloques en Google Calendar después de la aprobación del usuario.
+Propone una agenda semanal para trabajar en las tareas prioritarias y, tras aprobación, reserva bloques en Google Calendar.
 
 **2. ¿Qué input necesita el agente?**  
-Tareas pendientes con prioridades, fechas, duración estimada (o necesidad de estimarla), preferencias horarias y disponibilidad del calendario. Usa la zona `Europe/Madrid`; consulta eventos existentes y nunca presupone que un hueco esté libre sin comprobarlo.
+Tareas pendientes, prioridades, fechas, duraciones estimadas, preferencias horarias y disponibilidad real de Calendar; zona `Europe/Madrid`. Si faltan duraciones, propone estimaciones identificadas como tales.
 
 **3. ¿Cómo es un buen output y cómo sabrás que funcionó?**  
-Propuesta por Telegram con días, horas, tareas y conflictos; tras aprobación, eventos de Calendar con título identificable, horario, duración y referencia a la tarea. **Éxito:** bloques comprobados en calendario, sin solapamientos involuntarios ni duplicados; las reprogramaciones sustanciales se presentan antes de ejecutarse.
+Propuesta de bloques por Telegram con tarea, día, hora y duración; **solo tras aprobarla**, eventos enlazados a sus tareas. **Verificar** IDs, horarios, calendario correcto y ausencia de solapamientos no deseados. **Telegram:** confirmar bloques efectivamente creados y enlazarlos; señalar conflictos o bloques sin crear.
 
-**Relaciones:** consume 01 y 02; se coordina con 07; recibe cambios de 04 y 06.
+**Relaciones:** 01/02 aportan prioridades y tareas; 07 comparte lógica de Calendar; 04/06 pueden desencadenar replanificación.
 
 ## Skill 04 — `revision-diaria`
 
 **1. ¿Qué hace esta skill?**  
-A las 17:30 (hora de Madrid) pregunta por Telegram qué se hizo, qué avanzó y qué debe añadirse, cambiarse o retirarse de los planes.
+A las **17:30, Europe/Madrid**, pregunta por Telegram qué se hizo, qué avanzó y qué debe añadirse, modificarse o retirarse de la planificación.
 
 **2. ¿Qué input necesita el agente?**  
-Una automatización de OpenClaw previamente autorizada activa la pregunta; respuestas de texto o voz transcrita, más tareas y plan vigentes. Debe reconocer respuestas parciales, distinguir hechos de intenciones y pedir precisión solo para cambios ambiguos. Si no hay respuesta, no inventa actividad ni insiste automáticamente.
+Disparador programado de OpenClaw; planes y tareas vigentes; respuesta del usuario por texto o voz transcrita. Distingue actividades realizadas, intenciones y peticiones de cambio. Si no hay respuesta, deja la revisión pendiente sin insistir automáticamente.
 
 **3. ¿Cómo es un buen output y cómo sabrás que funcionó?**  
-Un único mensaje breve a las 17:30 y, tras la respuesta, resumen de progreso y propuesta de cambios; envía el registro a 05 y cambios confirmados a 02/01/03. **Éxito:** aviso recibido una vez, transcripción correcta si hay audio, tareas modificadas solo cuando proceda y revisión pendiente si no se responde. El cron/disparador se configura fuera de la skill.
+Una pregunta diaria entregada una sola vez; tras la respuesta, registro en 05 y actualizaciones autorizadas mediante 02/01, con posible propuesta de 03. **Verificar** diario y estados de tareas antes de cerrar. **Telegram:** una confirmación final breve con avances registrados, cambios realizados y pendientes. El envío a las 17:30 requiere una automatización aparte, no solo esta skill.
 
-**Relaciones:** activa 05 y, según la respuesta, 02, 01 y 03.
+**Relaciones:** coordina 05 y, según respuestas, 02, 01 y 03.
 
 ## Skill 05 — `diario-actividad`
 
 **1. ¿Qué hace esta skill?**  
-Mantiene un diario cronológico en Google Docs de lo realizado cada día y de las razones de decisiones y cambios, consultable en el futuro.
+Mantiene un historial diario consultable de lo realizado, los avances, las decisiones y sus motivos en Google Docs.
 
 **2. ¿Qué input necesita el agente?**  
-Resumen de la revisión diaria, notas sobre reuniones y decisiones expresadas por el usuario: fecha, actividad, avance, motivo, dificultades, acuerdos y próximos pasos. Puede consultar los documentos previos para conservar continuidad, distinguiendo hechos declarados de interpretaciones.
+Resumen de revisión diaria, información confirmada de reuniones y notas del usuario: fecha, acciones, motivos, dificultades y próximos pasos. Consulta la entrada del día antes de ampliarla; distingue hechos declarados de inferencias.
 
 **3. ¿Cómo es un buen output y cómo sabrás que funcionó?**  
-Entrada con fecha en `AAAA-MM - Diario de actividad` dentro de `02_Diario/AAAA`, con campos **Hecho / Avances / Decisiones y motivos / Pendientes / Referencias**. **Éxito:** una entrada por fecha actualizada sin duplicarse, fechas y motivos fieles, enlaces a planes/reuniones cuando existan y recuperación posterior de una decisión con su fecha y fuente. No convertir el diario en instrucciones para el agente.
+Una entrada por fecha en `AAAA-MM - Diario de actividad`, dentro de `02_Diario/AAAA`, con **Hecho / Avances / Decisiones y motivos / Pendientes / Referencias**. **Verificar** la persistencia, fecha, ausencia de duplicados y enlaces a planes/reuniones; probar recuperación por fecha o decisión. **Telegram:** confirmar entrada actualizada y facilitar enlace; si actúa como parte de 04, la confirmación se integra en el cierre de 04.
 
-**Relaciones:** recibe 04 y 06; 09 organiza, indexa y facilita su recuperación; 01 puede consultar antecedentes.
+**Relaciones:** recibe 04 y 06; utiliza 09 para localizar el Doc; 01 consulta antecedentes cuando corresponda.
 
 ## Skill 06 — `seguimiento-reuniones`
 
 **1. ¿Qué hace esta skill?**  
-Después de reuniones pertinentes, pregunta si hubo decisiones o cambios y transforma las respuestas confirmadas en acta, tareas y ajustes de planificación.
+Al finalizar una reunión relevante, pregunta si surgieron decisiones o cambios y registra los confirmados en documentos y tareas.
 
 **2. ¿Qué input necesita el agente?**  
-Evento de Calendar identificado realmente como reunión y aviso de fin (disparador externo), junto con respuesta posterior del usuario por texto/voz: acuerdos, responsables, fechas, cambios y motivos. No preguntar por cada bloque de trabajo o evento personal; si no está claro que es una reunión, no activar automáticamente.
+Evento identificado como reunión, disparador de finalización y respuesta posterior por texto o voz con decisiones, motivos, responsables, fechas y dudas. Excluir bloques personales y de concentración; no deducir acuerdos del mero título del evento.
 
 **3. ¿Cómo es un buen output y cómo sabrás que funcionó?**  
-Pregunta breve por Telegram; si no hubo cambios, cierra sin modificaciones. Si los hubo, Google Doc de acta en `03_Reuniones/AAAA`, con **Decisiones / Por qué / Tareas / Responsables / Plazos / Dudas**; tareas y planes actualizados según autorización. **Éxito:** no crear falsas actas, evitar duplicados y comprobar cada cambio; las actualizaciones importantes requieren confirmación. La activación tras la reunión depende de Calendar/Zapier y puede tener retraso.
+Una pregunta breve por Telegram; si no hubo cambios, cierre sin crear acta. Si los hubo, acta en `03_Reuniones/AAAA` con decisiones, razones, tareas y responsables, más ajustes autorizados en 01/02/03 y contexto para 05. **Verificar** acta y cada actualización. **Telegram:** un cierre consolidado con cambios reales, enlaces y pendientes; el disparador puede tener retraso.
 
-**Relaciones:** 09 archiva actas; 02 y 01 reciben acciones y cambios; 05 conserva el contexto; 03 revisa bloques afectados.
+**Relaciones:** 09 archiva; 02/01/03 actualizan; 05 conserva el porqué.
 
 ## Skill 07 — `calendario-inteligente`
 
 **1. ¿Qué hace esta skill?**  
-Interpreta solicitudes de agenda en lenguaje natural y crea o modifica eventos de Google Calendar con los detalles apropiados.
+Interpreta solicitudes de agenda en lenguaje natural para crear o modificar eventos de Google Calendar.
 
 **2. ¿Qué input necesita el agente?**  
-Texto o voz con asunto, día/intervalo, duración, ubicación, participantes y recordatorio, cuando se indiquen; consulta el calendario principal y disponibilidad. Emplea `Europe/Madrid`. Pregunta si falta un dato indispensable o hay varias interpretaciones con consecuencias distintas.
+Texto o voz con asunto, fecha/franja, duración, lugar, participantes y recordatorios cuando se indiquen; consulta calendario y disponibilidad, usando `Europe/Madrid`. Pregunta ante ambigüedad relevante.
 
 **3. ¿Cómo es un buen output y cómo sabrás que funcionó?**  
-Evento creado/modificado en el calendario correcto, con fecha, franja, duración, asistentes autorizados y recordatorio solicitado; confirmación por Telegram con enlace. **Éxito:** datos verificados y sin duplicados ni invitados añadidos por inferencia; cualquier conflicto relevante se comunica antes de reservar.
+Evento en el calendario correcto con horario, duración, recordatorio y asistentes autorizados. **Verificar** ID, datos y ausencia de duplicados/conflictos involuntarios. **Telegram:** confirmar fecha, hora y enlace del evento, o explicar qué dato impidió crearlo.
 
-**Relaciones:** comparte calendario con 03 y 06; puede utilizar tareas 02 como contexto sin crearlas automáticamente.
+**Relaciones:** comparte Calendar con 03 y 06; puede consultar 02 como contexto.
 
 ## Skill 08 — `borradores-correo`
 
 **1. ¿Qué hace esta skill?**  
-Convierte instrucciones por texto o voz en borradores de Gmail coherentes con el propósito y el estilo del usuario, sin enviarlos automáticamente.
+Transforma instrucciones escritas o dictadas en borradores de Gmail ajustados a la intención y al estilo del usuario, sin enviarlos.
 
 **2. ¿Qué input necesita el agente?**  
-Dictado o texto con destinatario (si se conoce), objetivo, datos y tono; opcionalmente correo previo y documentación accesible. Aplica preferencias de `USER.md`, estilo de `SOUL.md` y límites de `AGENTS.md`. No inventa direcciones, hechos ni adjuntos.
+Texto o transcripción con propósito, destinatario si existe, datos y tono; opcionalmente conversaciones previas y documentos autorizados. No inventa direcciones, hechos, adjuntos ni firma.
 
 **3. ¿Cómo es un buen output y cómo sabrás que funcionó?**  
-Borrador en Gmail con asunto, destinatario conocido, texto revisado y firma habitual sin duplicación; enlace o identificación del borrador por Telegram. **Éxito:** refleja la intención original, conserva datos correctos, destinatario comprobado y estado **borrador, no enviado**. El envío se tratará como una acción aparte y requerirá autorización suficiente.
+Borrador en Gmail con asunto y cuerpo revisados, destinatario conocido y firma sin duplicados. **Verificar** que existe y su estado es **borrador, no enviado**. **Telegram:** confirmar borrador creado, asunto y enlace o identificador disponible; indicar datos pendientes si los hay.
 
-**Relaciones:** puede consultar 05, 06 y Docs/Drive para obtener contexto; no altera tareas o calendario salvo instrucción adicional.
+**Relaciones:** consulta 05/06 y documentos mediante 09 cuando aporten contexto; no envía ni modifica otros servicios por defecto.
 
 ## Skill 09 — `organizacion-documental`
 
 **1. ¿Qué hace esta skill?**  
-Crea y mantiene en Google Drive una estructura coherente de carpetas, documentos, nombres y referencias para todo el sistema.
+Organiza en Google Drive carpetas, Google Docs y referencias compartidas para que todo el sistema sea localizable y no genere duplicados.
 
 **2. ¿Qué input necesita el agente?**  
-Tipo de documento, periodo, proyecto (si procede), título, contenido, enlaces y ubicación requerida por las demás skills; consulta primero la estructura existente. Conoce la cuenta y reglas de Drive/Docs desde `AGENTS.md` y respeta las restricciones de privacidad.
+Tipo de documento, periodo, proyecto si procede, título, contenido y enlaces/IDs recibidos de otras skills; consulta previamente la estructura existente y la ubicación solicitada.
 
 **3. ¿Cómo es un buen output y cómo sabrás que funcionó?**  
-Carpetas y documentos localizados o creados con nombres estables, enlace de acceso e índice de referencias. Estructura inicial propuesta:
+Carpeta/documento localizado o creado, con nombre consistente, ID y enlace registrado en el índice. Estructura inicial propuesta:
 
 ```text
 Sebastian/
-├── 00_Sistema/          (índice de objetivos, documentos y referencias)
-├── 01_Planificación/    (planes por año, mes y semana)
-├── 02_Diario/           (un documento por mes, organizado por año)
-├── 03_Reuniones/        (actas por año)
-├── 04_Proyectos/        (documentación por proyecto)
-└── 99_Archivo/          (histórico cerrado)
+├── 00_Sistema/         (índice de objetivos y referencias)
+├── 01_Planificación/   (planes por año/mes/semana)
+├── 02_Diario/          (un Doc por mes, por año)
+├── 03_Reuniones/       (actas por año)
+├── 04_Proyectos/       (documentación por proyecto)
+└── 99_Archivo/         (histórico cerrado)
 ```
 
-**Éxito:** las demás skills encuentran documentos por tipo/periodo/ID, no crean duplicados y pueden devolver enlaces válidos. No mover, borrar, compartir públicamente ni reestructurar documentos preexistentes importantes sin autorización.
+**Verificar** ubicación, acceso, enlaces y capacidad de reutilizar el documento en ejecuciones sucesivas. **Telegram:** si se invoca sola, confirmar estructura o documento creado; si es auxiliar, devolver resultado a la skill coordinadora para incluirlo en su único aviso. No reorganizar documentos existentes importantes sin autorización.
 
-**Relaciones:** servicio documental compartido para 01, 05 y 06, y registro de enlaces/IDs para 02, 03 y 07.
+**Relaciones:** 01, 05 y 06 la utilizan para documentos; 02, 03 y 07 para IDs y enlaces.
 
 ## Flujos conjuntos (no son skills adicionales)
 
-1. **Nuevo objetivo:** Telegram → 01 → 09 (Doc) → 02 (Tasks) → 03 (propuesta de agenda) → Calendar tras aprobación.
-2. **Cierre diario:** automatización 17:30 → Telegram → 04 → 05 (diario) + 02/01 (cambios confirmados) → 03 si hace falta replanificar.
-3. **Reunión terminada:** disparador de Calendar → 06 → Telegram → 09 (acta) + 05 (motivos) + 02/01/03 (ajustes pertinentes).
-4. **Evento espontáneo:** Telegram → 07 → Calendar → enlace de confirmación.
-5. **Email dictado:** nota de voz → transcripción → 08 → borrador de Gmail → revisión del usuario.
+1. **Planificar:** Telegram → 01 → 09 (Doc) → 02 (Tasks) → 03 (propuesta de agenda) → Calendar tras aprobación → **Telegram: un cierre verificado**.
+2. **Revisión diaria:** automatización 17:30 → Telegram (pregunta) → respuesta → 04 → 05 + 02/01 y, si procede, 03 → **Telegram: un cierre verificado**.
+3. **Fin de reunión:** disparador Calendar → 06 (pregunta Telegram) → respuesta → 09 (acta) + 05 (motivos) + 02/01/03 (ajustes) → **Telegram: un cierre verificado**.
+4. **Evento puntual:** Telegram → 07 → Calendar → comprobación → **Telegram: confirmación y enlace**.
+5. **Correo dictado:** Telegram voz/texto → 08 → borrador Gmail → comprobación → **Telegram: confirmación; no se envía**.
 
-## Dependencias y decisiones antes de implementar
+## Dependencias y decisiones de implementación
 
-- **Ya conectado:** Google Tasks, Gmail, Calendar, Drive y Docs mediante Zapier MCP; comprobar las acciones concretas disponibles y sus permisos, no solo la existencia de la conexión.
-- **Por verificar:** recepción y transcripción de voz en Telegram; envío de mensajes programados; acceso al calendario principal; lista de Tasks donde operar; capacidades de actualización de Docs y tareas; detección fiable de reuniones finalizadas.
-- **Por configurar:** automatización diaria de las **17:30 Europe/Madrid** y mecanismo de aviso tras reuniones; no son funciones que aparezcan solas por redactar una skill.
-- **Por acordar antes de activar escrituras masivas:** estructura de carpetas definitiva, lista de Tasks y reglas de aprobación de cambios de calendario. Los borradores de Gmail nunca se envían automáticamente.
-- **Seguridad:** limitar acciones habilitadas en Zapier y controles de ejecución de OpenClaw; probar fuentes externas maliciosas y fallos parciales antes de confiar tareas importantes al sistema.
+- **Conectado:** Zapier MCP con Gmail, Google Docs, Google Drive, Google Calendar y **Google Tasks**; comprobar acciones de lectura/escritura y su respuesta de verificación. Notion no es necesario en esta primera versión.
+- **Por comprobar:** notas de voz y transcripción en Telegram; envío al chat privado desde flujos programados; selección inequívoca de lista Tasks y calendario; actualización y lectura posterior de Docs/Tasks/Calendar/Gmail; detección de reuniones terminadas.
+- **Por configurar:** automatización diaria a las **17:30 Europe/Madrid** y disparador posterior a reuniones. Una skill no crea por sí sola un programador.
+- **Por concretar:** carpeta raíz definitiva, lista de Tasks y criterios para aprobar replanificaciones. La creación o cambio significativo de bloques de agenda requiere aprobación.
+- **Verificación y fallos:** cada skill debe especificar las operaciones de comprobación y los datos mínimos que devuelve al coordinador (estado, acciones, IDs, enlaces, errores, pendientes). Diseñar reintentos idempotentes y un único aviso de Telegram por flujo.
+- **Seguridad:** aplicar `AGENTS.md` y configurar permisos reales de las integraciones. Probar intentos de prompt injection y fallos parciales antes de utilizar datos importantes.
 
 ## Orden de construcción y pruebas
 
-**Fase 1 — Planificación:** 09 → 01 → 02 → 03. Prueba: mensaje de objetivos → Doc y tareas verificadas → propuesta de agenda → bloques creados tras aprobación.
+**Fase 1 — Planificación:** 09 → 01 → 02 → 03. Prueba: un mensaje de objetivos produce Doc y tareas comprobados, propuesta horaria, bloques tras aprobación y **un resumen de cierre en Telegram**.
 
-**Fase 2 — Seguimiento:** 05 → 04 → 06. Prueba: respuesta por voz a revisión de 17:30 → entrada diaria, cambios correctos y consulta retrospectiva; reunión finalizada → pregunta pertinente y acta sin falsos cambios.
+**Fase 2 — Seguimiento:** 05 → 04 → 06. Prueba: revisión por voz a las 17:30, diario y Tasks actualizados y verificables, consulta histórica y aviso de cierre; tras una reunión, pregunta pertinente y acta si hubo cambios.
 
-**Fase 3 — Productividad:** 07 → 08. Prueba: evento descrito en lenguaje natural y borrador de correo dictado, sin invitados ni envíos no autorizados.
+**Fase 3 — Productividad:** 07 → 08. Prueba: evento natural y borrador dictado creados, verificados y confirmados por Telegram, sin envíos ni invitados no autorizados.
 
-**Criterio global de aceptación:** el sistema trabaja desde Telegram con texto y voz, registra el **qué, cuándo y por qué**, enlaza los registros sin duplicados, confirma resultados reales y respeta la privacidad y las aprobaciones de `AGENTS.md`.
-
----
-
-**Entrega 4Geeks:** crear este archivo en la **raíz del repositorio** y hacer un commit **antes** de escribir la implementación de cualquier skill. El commit de diseño no instala ni activa las skills.
+**Criterio global de aceptación:** las nueve skills coordinan texto/voz, registran **qué, cuándo y por qué**, enlazan datos sin duplicados y comunican **solo resultados efectivamente verificados** por Telegram mediante cierres breves, indicando fallos y pendientes sin ocultarlos.
